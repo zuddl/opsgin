@@ -64,7 +64,7 @@ func (s *Schedules) slackUpdateUserGroup() error {
 	}
 
 	for _, item := range s.List {
-		if len(item.Duty) < 1 {
+		if item.Group == "" {
 			continue
 		}
 
@@ -78,9 +78,28 @@ func (s *Schedules) slackUpdateUserGroup() error {
 			duty = append(duty, uid)
 		}
 
-		if _, err := s.slack.UpdateUserGroupMembers(item.Group, strings.Join(duty, ",")); err != nil {
-			return err
+		if len(duty) < 1 {
+			log.WithFields(log.Fields{
+				"usergroup": item.Group,
+				"schedule":  item.Name,
+			}).Warn("there are no on-duty on this calendar")
+
+			continue
 		}
+
+		if _, err := s.slack.UpdateUserGroupMembers(item.Group, strings.Join(duty, ",")); err != nil {
+			log.WithFields(log.Fields{
+				"usergroup": item.Group,
+				"schedule":  item.Name,
+			}).Error(err)
+
+			continue
+		}
+
+		log.WithFields(log.Fields{
+			"usergroup": item.Group,
+			"schedule":  item.Name,
+		}).Infof("the user group has been updated")
 	}
 
 	return nil
@@ -99,7 +118,7 @@ func (s *Schedules) slackGetUserGroups() error {
 	}
 
 	for _, group := range groups {
-		s.groups[group.Name] = group.ID
+		s.groups[group.Handle] = group.ID
 	}
 
 	log.Debugf("slack user groups: %#v", s.groups)
@@ -109,7 +128,15 @@ func (s *Schedules) slackGetUserGroups() error {
 			continue
 		}
 
-		s.List[idx].Group = s.groups[item.Group]
+		group, ok := s.groups[item.Group]
+		if !ok {
+			log.WithFields(log.Fields{
+				"usergroup": item.Group,
+				"schedule":  item.Name,
+			}).Errorf("can't find group id")
+		}
+
+		s.List[idx].Group = group
 	}
 
 	return nil
@@ -128,7 +155,10 @@ func (s *Schedules) slackFindUsers() error {
 		for idx, duty := range item.Duty {
 			user, err := s.slack.GetUserByEmail(duty)
 			if err != nil {
-				log.Warnf("can't find user %#v", duty)
+				log.WithFields(log.Fields{
+					"usergroup": item.Group,
+					"schedule":  item.Name,
+				}).Warnf("can't find user %#v", duty)
 
 				user = &slack.User{} // the user will be removed from duty
 			}
