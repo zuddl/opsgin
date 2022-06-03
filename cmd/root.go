@@ -44,11 +44,12 @@ import (
 )
 
 var (
-	configFile = ""
-	configPath = ""
-	logFormat  = ""
-	logLevel   = ""
-	rootCmd    = &cobra.Command{
+	configFile          = ""
+	configPath          = ""
+	logFormat           = ""
+	logFormatJsonPretty = false
+	logLevel            = ""
+	rootCmd             = &cobra.Command{
 		Use:               pkg,
 		Short:             "Synchronization of the on-duty Opsgenie with Slack user groups",
 		CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
@@ -80,6 +81,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&configPath, "config-path", pathConf, "Set the configuration file path")
 	rootCmd.PersistentFlags().StringVar(&configFile, "config-file", "config.yaml", "Set the configuration file name")
 	rootCmd.PersistentFlags().StringVar(&logFormat, "log-format", "text", "Set the log format: text, json")
+	rootCmd.PersistentFlags().BoolVar(&logFormatJsonPretty, "log-pretty", false, "Json logs will be indented")
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "Set the log level: debug, info, warn, error, fatal")
 }
 
@@ -105,7 +107,7 @@ func initConfig() {
 
 	if logFormat == "json" {
 		log.SetFormatter(&log.JSONFormatter{
-			PrettyPrint: true,
+			PrettyPrint: logFormatJsonPretty,
 		})
 	}
 
