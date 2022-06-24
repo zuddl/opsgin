@@ -34,46 +34,137 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/opsgenie/opsgenie-go-sdk-v2/alert"
 	"github.com/opsgenie/opsgenie-go-sdk-v2/client"
 	"github.com/opsgenie/opsgenie-go-sdk-v2/schedule"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
 
-func (s *Schedules) opsgenieGetSchedules() error {
+func (s *Schedules) opsgenieInitSchedule() error {
+	if s.sc != nil {
+		return nil
+	}
+
 	opsgin_key := viper.GetString("api.key")
 	if opsgin_key == "" {
 		return fmt.Errorf("opsgenie API key is empty")
 	}
 
-	ctx := context.Background()
-
 	sc, err := schedule.NewClient(&client.Config{
-		ApiKey: opsgin_key,
-		Logger: log.StandardLogger(),
+		ApiKey:     opsgin_key,
+		Logger:     log.StandardLogger(),
+		RetryCount: 5,
 	})
 	if err != nil {
 		log.Fatal("failed to create a client")
 	}
 
-	for idx, item := range s.List {
-		log.Infof("Schedule loading: %s", item.Name)
+	s.sc = sc
+
+	return nil
+}
+
+func (s *Schedules) opsgenieInitAlert() error {
+	if s.ac != nil {
+		return nil
+	}
+
+	opsgin_key := viper.GetString("api.key")
+	if opsgin_key == "" {
+		return fmt.Errorf("opsgenie API key is empty")
+	}
+
+	ac, err := alert.NewClient(&client.Config{
+		ApiKey:     opsgin_key,
+		Logger:     log.StandardLogger(),
+		RetryCount: 5,
+	})
+	if err != nil {
+		log.Fatal("failed to create a client")
+	}
+
+	s.ac = ac
+
+	return nil
+}
+
+func (s *Schedules) opsgenieGetSchedules(sn ...string) error {
+	if err := s.opsgenieInitSchedule(); err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+
+	for idx, item := range s.list {
+		if len(sn) > 0 && sn[0] != item.name {
+			continue
+		}
+
+		log.Infof("Schedule loading: %s", item.name)
+
+		s.list[idx].duty = []string{}
 
 		flat := false
-		oc, err := sc.GetOnCalls(ctx, &schedule.GetOnCallsRequest{
+		oc, err := s.sc.GetOnCalls(ctx, &schedule.GetOnCallsRequest{
 			Flat:                   &flat,
-			ScheduleIdentifier:     item.Name,
+			ScheduleIdentifier:     item.name,
 			ScheduleIdentifierType: schedule.Name,
 		})
 		if err != nil {
-			s.List[idx].Duty = []string{}
-
 			continue
 		}
 
 		for _, participants := range oc.OnCallParticipants {
-			s.List[idx].Duty = append(s.List[idx].Duty, participants.Name)
+			s.list[idx].duty = append(s.list[idx].duty, participants.Name)
 		}
+	}
+
+	return nil
+}
+
+func (s *Schedules) opsgenieAddAlert(message, thread_ts, thread_link string) (string, error) {
+	if err := s.opsgenieInitAlert(); err != nil {
+		return "", err
+	}
+
+	ctx := context.Background()
+
+	res, err := s.ac.Create(ctx, &alert.CreateAlertRequest{
+		Description: fmt.Sprintf("%s\nslack:%s", message, thread_link),
+		Message:     "you were called in the slack",
+		Priority:    alert.Priority(viper.GetString("_opsgenie.priority")),
+		Responders: []alert.Responder{{
+			Name: s.list[0].name,
+			Type: alert.ScheduleResponder,
+		}},
+	})
+	if err != nil {
+		s.log.Error("failed to create an alert")
+		return "", err
+	}
+
+	req, err := res.RetrieveStatus(ctx)
+	if err != nil {
+		s.log.Error("failed to get an alert")
+		return "", err
+	}
+
+	return req.AlertID, nil
+}
+
+func (s *Schedules) opsgenieCloseAlert(alertID string) error {
+	if err := s.opsgenieInitAlert(); err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+
+	if _, err := s.ac.Close(ctx, &alert.CloseAlertRequest{
+		IdentifierType:  alert.ALERTID,
+		IdentifierValue: alertID,
+	}); err != nil {
+		return err
 	}
 
 	return nil

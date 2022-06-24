@@ -34,10 +34,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
+	"github.com/opsgenie/opsgenie-go-sdk-v2/alert"
+	"github.com/opsgenie/opsgenie-go-sdk-v2/schedule"
 	log "github.com/sirupsen/logrus"
+	"github.com/slack-go/slack"
+	"github.com/slack-go/slack/socketmode"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -51,13 +56,65 @@ var (
 	logLevel            = ""
 	rootCmd             = &cobra.Command{
 		Use:               pkg,
-		Short:             "Synchronization of the on-duty Opsgenie with Slack user groups",
+		Short:             "Utility for integrating on-duty Opsgenie and Slack",
 		CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
 		Version:           version,
 	}
 	pkg     = "opsgin"
 	version = ""
 )
+
+type Schedule struct {
+	duty  []string
+	group string
+	name  string
+	token []string
+}
+
+type Schedules struct {
+	groups map[string]string
+	list   []Schedule
+	mode   string
+
+	// opsgenie clients
+	ac *alert.Client
+	sc *schedule.Client
+
+	// slack clients
+	slack *slack.Client
+	sm    *socketmode.Client
+
+	log *log.Entry
+}
+
+func (s *Schedules) configGetSchedules() error {
+	for item := range viper.AllSettings() {
+		r, _ := regexp.Compile(`^_`)
+		if r.MatchString(item) {
+			continue
+		}
+
+		data := viper.GetStringSlice(item)
+
+		schedule := Schedule{
+			group: item,
+			name:  data[0],
+		}
+
+		switch s.mode {
+		case "daemon":
+			schedule.token = data[1:]
+		case "sync":
+			schedule.duty = data[1:]
+		default:
+			return fmt.Errorf("unknown app mode")
+		}
+
+		s.list = append(s.list, schedule)
+	}
+
+	return nil
+}
 
 func Execute() {
 	err := rootCmd.Execute()
@@ -88,6 +145,7 @@ func init() {
 func initConfig() {
 	viper.AutomaticEnv()
 	viper.SetConfigFile(fmt.Sprintf("%s/%s", configPath, configFile))
+	viper.SetDefault("_opsgenie.priority", "P5")
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.SetEnvPrefix(pkg)
 
@@ -101,7 +159,7 @@ func initConfig() {
 		&log.TextFormatter{
 			ForceColors:     true,
 			FullTimestamp:   true,
-			TimestampFormat: time.RFC3339Nano,
+			TimestampFormat: time.RFC3339,
 		},
 	)
 

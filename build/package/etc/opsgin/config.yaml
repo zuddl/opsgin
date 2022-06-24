@@ -1,9 +1,21 @@
-slack_user_group_name1:
-  - opsgenie schedule name 1
-  - additional.user@num1
-  - additional.user@num2
+# # sync mode
+# slack_user_group_name1:
+#   - opsgenie schedule name 1
+#   - additional.user@num1
+#   - additional.user@num2
 
-slack_user_group_name2:
-  - opsgenie schedule name 2
-  - additional.user@num1
-  - additional.user@num2
+# slack_user_group_name2:
+#   - opsgenie schedule name 2
+#   - additional.user@num1
+#   - additional.user@num2
+
+# # daemon mode
+# slack_app_name1:
+#   - opsgenie schedule name 1
+#   - xapp-***
+#   - xoxb-***
+
+# slack_app_name2:
+#   - opsgenie schedule name 2
+#   - xapp-***
+#   - xoxb-***

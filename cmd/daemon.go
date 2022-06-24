@@ -35,10 +35,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// syncCmd represents the sync command
-var syncCmd = &cobra.Command{
-	Use:   "sync",
-	Short: "Synchronization of the on-duty Opsgenie with Slack user groups",
+// daemonCmd represents the sync command
+var daemonCmd = &cobra.Command{
+	Use:   "daemon",
+	Short: "Calling on-duty in Slack channels and sending them notifications in Opsgenie via alerts",
 	Run: func(cmd *cobra.Command, args []string) {
 		s := Schedules{mode: cmd.Use}
 
@@ -46,16 +46,12 @@ var syncCmd = &cobra.Command{
 			log.Fatal(err)
 		}
 
-		if err := s.opsgenieGetSchedules(); err != nil {
-			log.Fatal(err)
-		}
-
-		if err := s.slackUpdateUserGroup(); err != nil {
+		if err := s.slackClientsWS(); err != nil {
 			log.Fatal(err)
 		}
 	},
 }
 
 func init() {
-	rootCmd.AddCommand(syncCmd)
+	rootCmd.AddCommand(daemonCmd)
 }

@@ -32,22 +32,237 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"os/signal"
+	"regexp"
 	"strings"
+	"syscall"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/slack-go/slack"
+	"github.com/slack-go/slack/slackevents"
+	"github.com/slack-go/slack/socketmode"
 	"github.com/spf13/viper"
 )
 
 func (s *Schedules) slackInit() error {
-	slack_key := viper.GetString("slack.api.key")
-	if slack_key == "" {
-		return fmt.Errorf("slack API key is empty")
+	if s.slack != nil {
+		return nil
 	}
 
-	s.slack = slack.New(slack_key)
+	var (
+		slack_app_key string // xapp
+		slack_key     string // xoxp or xoxb
+		slack_type    string
+	)
+
+	switch s.mode {
+	case "daemon":
+		for _, item := range s.list[0].token {
+			if ok, _ := regexp.MatchString(`xox[p,b]-`, item); ok {
+				slack_key = item
+			}
+
+			if strings.Contains(item, "xapp-") {
+				slack_app_key = item
+			}
+		}
+
+		slack_type = "appname"
+	case "sync":
+		slack_key = viper.GetString("slack.api.key")
+		slack_type = "usergroup"
+	default:
+		return fmt.Errorf("unknown app mode")
+	}
+
+	s.log = log.WithFields(log.Fields{
+		slack_type: s.list[0].group,
+		"schedule": s.list[0].name,
+	})
+
+	s.log.Info("init slack client")
+
+	s.slack = slack.New(
+		slack_key,
+		slack.OptionAppLevelToken(slack_app_key),
+		// slack.OptionDebug(true),
+	)
 
 	return nil
+}
+
+func (s *Schedules) slackClientsWS() error {
+	for _, item := range s.list {
+		schedule := Schedules{
+			list: []Schedule{item},
+			mode: s.mode,
+		}
+
+		if err := schedule.slackConnectToWS(); err != nil {
+			return err
+		}
+	}
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
+	sig := <-sigs
+
+	log.WithFields(log.Fields{
+		"signal": sig.String(),
+		"code":   fmt.Sprintf("%d", sig),
+	}).Info("Signal notify")
+
+	return nil
+}
+
+func (s *Schedules) slackConnectToWS() error {
+	if err := s.slackInit(); err != nil {
+		return err
+	}
+
+	if _, err := s.slack.AuthTest(); err != nil {
+		return err
+	}
+
+	s.sm = socketmode.New(
+		s.slack,
+		// socketmode.OptionDebug(true),
+	)
+
+	go s.slackWatchEvents()
+
+	go s.sm.Run()
+
+	return nil
+}
+
+func (s *Schedules) slackWatchEvents() {
+	for envelope := range s.sm.Events {
+		s.log.Debugf(">> %#v\n", envelope)
+
+		switch envelope.Type {
+		case socketmode.EventTypeInteractive:
+			s.sm.Ack(*envelope.Request)
+
+			payload, _ := envelope.Data.(slack.InteractionCallback)
+
+			if _, _, err := s.slack.PostMessage(
+				payload.Channel.GroupConversation.Conversation.ID,
+				slack.MsgOptionDeleteOriginal(payload.ResponseURL),
+			); err != nil {
+				s.log.Error(err)
+			}
+
+			data := strings.Split(payload.CallbackID, ";")
+
+			slack_response := ":dizzy: Alert `%s` was closed"
+
+			if err := s.opsgenieCloseAlert(data[0]); err != nil {
+				slack_response = ":bangbang: Failed to close alert `%s`"
+
+				s.log.Errorf("can't close alert - %s", err.Error())
+			}
+
+			if _, err := s.slack.PostEphemeral(
+				payload.Channel.GroupConversation.Conversation.ID,
+				payload.User.ID,
+				slack.MsgOptionTS(data[1]),
+				slack.MsgOptionText(
+					fmt.Sprintf(slack_response, data[0]),
+					false,
+				),
+			); err != nil {
+				s.log.Error(err)
+			}
+
+		case socketmode.EventTypeEventsAPI:
+			s.sm.Ack(*envelope.Request)
+
+			payload, _ := envelope.Data.(slackevents.EventsAPIEvent)
+
+			switch event := payload.InnerEvent.Data.(type) {
+			case *slackevents.AppMentionEvent:
+				l := s.log.WithFields(log.Fields{"event_user": event.User})
+
+				l.Debug("getting permalink")
+				link, err := s.slack.GetPermalink(&slack.PermalinkParameters{
+					Channel: event.Channel,
+					Ts:      event.TimeStamp,
+				})
+				if err != nil {
+					l.Errorf("can't get permalink - %s", err.Error())
+
+					continue
+				}
+
+				l.Debugf("getting schedule - %#v", s.list[0].name)
+				if err := s.opsgenieGetSchedules(s.list[0].name); err != nil {
+					l.Errorf("can't load schedule - %s", err.Error())
+
+					continue
+				}
+
+				l.Debug("getting slack users")
+				if err := s.slackFindUsers(); err != nil {
+					l.Errorf("can't load slack users - %s", err.Error())
+
+					continue
+				}
+
+				slack_response := ":wave: Hi, <@%s>! <@%s> has been notified and will be coming soon"
+
+				ts := event.TimeStamp
+				if event.ThreadTimeStamp != "" {
+					ts = event.ThreadTimeStamp
+				}
+
+				l.Debug("adding opsgenie alert")
+				alertID, err := s.opsgenieAddAlert(event.Text, ts, link)
+				if err != nil {
+					slack_response = ":wave: Hi, <@%s>! I couldn't create an alert in OpsGenie :sob: <@%s>"
+
+					l.Errorf("can't create alert - %s", err.Error())
+				}
+
+				l.Debugf("sending slack.PostMessage to %s", event.User)
+				if _, _, err := s.slack.PostMessage(
+					event.Channel,
+					slack.MsgOptionTS(event.TimeStamp),
+					slack.MsgOptionText(
+						fmt.Sprintf(
+							slack_response,
+							event.User,
+							s.list[0].duty[0],
+						),
+						false,
+					),
+				); err != nil {
+					l.Error(err)
+				}
+
+				l.Debugf("sending slack.PostEphemeral to %s", s.list[0].duty[0])
+				if _, err := s.slack.PostEphemeral(
+					event.Channel,
+					s.list[0].duty[0],
+					slack.MsgOptionTS(event.TimeStamp),
+					slack.MsgOptionAttachments(slack.Attachment{
+						Actions: []slack.AttachmentAction{
+							{Name: "alert_close", Text: "close", Type: "button"},
+						},
+						CallbackID: fmt.Sprintf("%s;%s", alertID, event.TimeStamp),
+						Color:      "good",
+						Text:       "You can close this alert in Opsgenie",
+					}),
+				); err != nil {
+					l.Error(err)
+				}
+			}
+		default:
+			s.log.Debugf("skipped: %v", envelope.Type)
+		}
+	}
 }
 
 func (s *Schedules) slackUpdateUserGroup() error {
@@ -63,14 +278,14 @@ func (s *Schedules) slackUpdateUserGroup() error {
 		log.Fatal(err)
 	}
 
-	for _, item := range s.List {
-		if item.Group == "" {
+	for _, item := range s.list {
+		if item.group == "" {
 			continue
 		}
 
 		duty := []string{}
 
-		for _, uid := range item.Duty {
+		for _, uid := range item.duty {
 			if uid == "" {
 				continue
 			}
@@ -79,27 +294,18 @@ func (s *Schedules) slackUpdateUserGroup() error {
 		}
 
 		if len(duty) < 1 {
-			log.WithFields(log.Fields{
-				"usergroup": item.Group,
-				"schedule":  item.Name,
-			}).Warn("there are no on-duty on this calendar")
+			s.log.Warn("there are no on-duty on this calendar")
 
 			continue
 		}
 
-		if _, err := s.slack.UpdateUserGroupMembers(item.Group, strings.Join(duty, ",")); err != nil {
-			log.WithFields(log.Fields{
-				"usergroup": item.Group,
-				"schedule":  item.Name,
-			}).Error(err)
+		if _, err := s.slack.UpdateUserGroupMembers(item.group, strings.Join(duty, ",")); err != nil {
+			s.log.Error(err)
 
 			continue
 		}
 
-		log.WithFields(log.Fields{
-			"usergroup": item.Group,
-			"schedule":  item.Name,
-		}).Infof("the user group has been updated")
+		s.log.Infof("the user group has been updated")
 	}
 
 	return nil
@@ -121,22 +327,19 @@ func (s *Schedules) slackGetUserGroups() error {
 		s.groups[group.Handle] = group.ID
 	}
 
-	log.Debugf("slack user groups: %#v", s.groups)
+	s.log.Debugf("slack user groups: %#v", s.groups)
 
-	for idx, item := range s.List {
-		if len(item.Duty) < 1 {
+	for idx, item := range s.list {
+		if len(item.duty) < 1 {
 			continue
 		}
 
-		group, ok := s.groups[item.Group]
+		group, ok := s.groups[item.group]
 		if !ok {
-			log.WithFields(log.Fields{
-				"usergroup": item.Group,
-				"schedule":  item.Name,
-			}).Errorf("can't find group id")
+			s.log.Errorf("can't find group id")
 		}
 
-		s.List[idx].Group = group
+		s.list[idx].group = group
 	}
 
 	return nil
@@ -147,23 +350,20 @@ func (s *Schedules) slackFindUsers() error {
 		return err
 	}
 
-	for _, item := range s.List {
-		if len(item.Duty) < 1 {
+	for _, item := range s.list {
+		if len(item.duty) < 1 {
 			continue
 		}
 
-		for idx, duty := range item.Duty {
+		for idx, duty := range item.duty {
 			user, err := s.slack.GetUserByEmail(duty)
 			if err != nil {
-				log.WithFields(log.Fields{
-					"usergroup": item.Group,
-					"schedule":  item.Name,
-				}).Warnf("can't find user %#v", duty)
+				s.log.Warnf("can't find user %#v", duty)
 
 				user = &slack.User{} // the user will be removed from duty
 			}
 
-			item.Duty[idx] = user.ID
+			item.duty[idx] = user.ID
 		}
 	}
 
