@@ -138,6 +138,7 @@ func (s *Schedules) opsgenieAddAlert(message, thread_ts, thread_link string) (st
 			Name: s.list[0].name,
 			Type: alert.ScheduleResponder,
 		}},
+		Tags: []string{pkg, s.list[0].group},
 	})
 	if err != nil {
 		s.log.Error("failed to create an alert")
@@ -163,6 +164,24 @@ func (s *Schedules) opsgenieCloseAlert(alertID string) error {
 	if _, err := s.ac.Close(ctx, &alert.CloseAlertRequest{
 		IdentifierType:  alert.ALERTID,
 		IdentifierValue: alertID,
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *Schedules) opsgenieIncreaseAlertPriority(alertID, priority string) error {
+	if err := s.opsgenieInitAlert(); err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+
+	if _, err := s.ac.UpdatePriority(ctx, &alert.UpdatePriorityRequest{
+		IdentifierType:  alert.ALERTID,
+		IdentifierValue: alertID,
+		Priority:        alert.Priority(priority),
 	}); err != nil {
 		return err
 	}

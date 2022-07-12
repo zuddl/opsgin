@@ -138,129 +138,171 @@ func (s *Schedules) slackConnectToWS() error {
 	return nil
 }
 
+func (s *Schedules) slackGetAttachmentAction(action ...string) []slack.AttachmentAction {
+	actionList := []slack.AttachmentAction{}
+
+	for _, item := range action {
+		switch item {
+		case "alert_increase_priority":
+			actionList = append(actionList, slack.AttachmentAction{
+				Confirm: &slack.ConfirmationField{
+					Text: ":no_entry_sign: You can increase the priority of the notification, but be careful not to do this if it is not necessary",
+				},
+				Name:  "alert_increase_priority",
+				Style: "danger",
+				Text:  "Increase priority",
+				Type:  "button",
+				Value: "alert_increase_priority",
+			})
+		case "alert_close":
+			actionList = append(actionList, slack.AttachmentAction{
+				Name:  "alert_close",
+				Style: "primary",
+				Text:  "Close",
+				Type:  "button",
+				Value: "alert_close",
+			})
+		default:
+			continue
+		}
+	}
+
+	return actionList
+}
+
+func (s *Schedules) slackGetAttachmentFields(priority, duty string) []slack.AttachmentField {
+	return []slack.AttachmentField{
+		{Short: true, Title: "Priority", Value: priority},
+		{Short: true, Title: "On duty", Value: fmt.Sprintf("<@%s>", duty)},
+	}
+}
+
 func (s *Schedules) slackWatchEvents() {
 	for envelope := range s.sm.Events {
-		s.log.Debugf(">> %#v\n", envelope)
+		switch envelope.Type {
+		case socketmode.EventTypeInteractive, socketmode.EventTypeEventsAPI:
+			s.log.Debugf("event type: %v", envelope.Type)
+		default:
+			s.log.Debugf("skipped: %v", envelope.Type)
+			continue
+		}
+
+		s.sm.Ack(*envelope.Request)
+
+		// s.log.Debugf(">> envelope - %#v\n", envelope)
+
+		s.log.Debugf("getting schedule - %#v", s.list[0].name)
+		if err := s.opsgenieGetSchedules(s.list[0].name); err != nil {
+			s.log.Errorf("can't load schedule - %s", err.Error())
+
+			continue
+		}
+
+		s.log.Debug("getting slack users")
+		if err := s.slackFindUsers(); err != nil {
+			s.log.Errorf("can't load slack users - %s", err.Error())
+
+			continue
+		}
+
+		slackAttachmentAction := s.slackGetAttachmentAction("alert_increase_priority", "alert_close")
+		slackAttachmentField := s.slackGetAttachmentFields(viper.GetString("_opsgenie.priority"), s.list[0].duty[0])
+		slackAttachmentColor := "warning"
+		slackResponse := "The engineer on duty has been notified and will be coming soon"
 
 		switch envelope.Type {
 		case socketmode.EventTypeInteractive:
-			s.sm.Ack(*envelope.Request)
-
 			payload, _ := envelope.Data.(slack.InteractionCallback)
+			data := strings.Split(payload.CallbackID, ";")
+
+			switch payload.ActionCallback.AttachmentActions[0].Value {
+			case "alert_close":
+				slackAttachmentColor = "good"
+				slackResponse = ":dizzy: The alert was closed"
+
+				if err := s.opsgenieCloseAlert(data[0]); err != nil {
+					slackResponse = ":bangbang: Failed to close alert"
+
+					s.log.Errorf("can't close alert - %s", err.Error())
+				} else {
+					slackAttachmentAction = []slack.AttachmentAction{}
+				}
+			case "alert_increase_priority":
+				slackAttachmentField = s.slackGetAttachmentFields("P1", s.list[0].duty[0])
+				slackAttachmentColor = "danger"
+				slackResponse = ":fire: The alert priority has been increased"
+
+				if err := s.opsgenieIncreaseAlertPriority(data[0], "P1"); err != nil {
+					slackResponse = ":bangbang: Failed to increase alert priority"
+
+					s.log.Errorf("can't close alert - %s", err.Error())
+				} else {
+					slackAttachmentAction = s.slackGetAttachmentAction("alert_close")
+				}
+			default:
+				continue
+			}
 
 			if _, _, err := s.slack.PostMessage(
 				payload.Channel.GroupConversation.Conversation.ID,
-				slack.MsgOptionDeleteOriginal(payload.ResponseURL),
-			); err != nil {
-				s.log.Error(err)
-			}
-
-			data := strings.Split(payload.CallbackID, ";")
-
-			slack_response := ":dizzy: Alert `%s` was closed"
-
-			if err := s.opsgenieCloseAlert(data[0]); err != nil {
-				slack_response = ":bangbang: Failed to close alert `%s`"
-
-				s.log.Errorf("can't close alert - %s", err.Error())
-			}
-
-			if _, err := s.slack.PostEphemeral(
-				payload.Channel.GroupConversation.Conversation.ID,
-				payload.User.ID,
-				slack.MsgOptionTS(data[1]),
-				slack.MsgOptionText(
-					fmt.Sprintf(slack_response, data[0]),
-					false,
-				),
+				slack.MsgOptionReplaceOriginal(payload.ResponseURL),
+				slack.MsgOptionAttachments(slack.Attachment{
+					Actions:    slackAttachmentAction,
+					CallbackID: payload.CallbackID,
+					Color:      slackAttachmentColor,
+					Fields:     slackAttachmentField,
+					Text:       slackResponse,
+				}),
 			); err != nil {
 				s.log.Error(err)
 			}
 
 		case socketmode.EventTypeEventsAPI:
-			s.sm.Ack(*envelope.Request)
-
 			payload, _ := envelope.Data.(slackevents.EventsAPIEvent)
 
 			switch event := payload.InnerEvent.Data.(type) {
 			case *slackevents.AppMentionEvent:
-				l := s.log.WithFields(log.Fields{"event_user": event.User})
-
-				l.Debug("getting permalink")
+				s.log.Debug("getting permalink")
 				link, err := s.slack.GetPermalink(&slack.PermalinkParameters{
 					Channel: event.Channel,
 					Ts:      event.TimeStamp,
 				})
 				if err != nil {
-					l.Errorf("can't get permalink - %s", err.Error())
+					s.log.Errorf("can't get permalink - %s", err.Error())
 
 					continue
 				}
-
-				l.Debugf("getting schedule - %#v", s.list[0].name)
-				if err := s.opsgenieGetSchedules(s.list[0].name); err != nil {
-					l.Errorf("can't load schedule - %s", err.Error())
-
-					continue
-				}
-
-				l.Debug("getting slack users")
-				if err := s.slackFindUsers(); err != nil {
-					l.Errorf("can't load slack users - %s", err.Error())
-
-					continue
-				}
-
-				slack_response := ":wave: Hi, <@%s>! <@%s> has been notified and will be coming soon"
 
 				ts := event.TimeStamp
 				if event.ThreadTimeStamp != "" {
 					ts = event.ThreadTimeStamp
 				}
 
-				l.Debug("adding opsgenie alert")
+				s.log.Debug("adding opsgenie alert")
 				alertID, err := s.opsgenieAddAlert(event.Text, ts, link)
 				if err != nil {
-					slack_response = ":wave: Hi, <@%s>! I couldn't create an alert in OpsGenie :sob: <@%s>"
+					slackAttachmentAction = []slack.AttachmentAction{}
+					slackAttachmentField = []slack.AttachmentField{}
+					slackResponse = "I couldn't create an alert in OpsGenie :sob:"
 
-					l.Errorf("can't create alert - %s", err.Error())
+					s.log.Errorf("can't create alert - %s", err.Error())
 				}
 
-				l.Debugf("sending slack.PostMessage to %s", event.User)
+				s.log.Debugf("sending slack.PostMessage to %s", event.User)
 				if _, _, err := s.slack.PostMessage(
 					event.Channel,
 					slack.MsgOptionTS(event.TimeStamp),
-					slack.MsgOptionText(
-						fmt.Sprintf(
-							slack_response,
-							event.User,
-							s.list[0].duty[0],
-						),
-						false,
-					),
-				); err != nil {
-					l.Error(err)
-				}
-
-				l.Debugf("sending slack.PostEphemeral to %s", s.list[0].duty[0])
-				if _, err := s.slack.PostEphemeral(
-					event.Channel,
-					s.list[0].duty[0],
-					slack.MsgOptionTS(event.TimeStamp),
 					slack.MsgOptionAttachments(slack.Attachment{
-						Actions: []slack.AttachmentAction{
-							{Name: "alert_close", Text: "close", Type: "button"},
-						},
+						Actions:    slackAttachmentAction,
 						CallbackID: fmt.Sprintf("%s;%s", alertID, event.TimeStamp),
-						Color:      "good",
-						Text:       "You can close this alert in Opsgenie",
+						Color:      slackAttachmentColor,
+						Fields:     slackAttachmentField,
+						Text:       slackResponse,
 					}),
 				); err != nil {
-					l.Error(err)
+					s.log.Error(err)
 				}
 			}
-		default:
-			s.log.Debugf("skipped: %v", envelope.Type)
 		}
 	}
 }
