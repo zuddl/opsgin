@@ -171,6 +171,23 @@ func (s *Schedules) opsgenieCloseAlert(alertID string) error {
 	return nil
 }
 
+func (s *Schedules) opsgenieAckAlert(alertID string) error {
+	if err := s.opsgenieInitAlert(); err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+
+	if _, err := s.ac.Acknowledge(ctx, &alert.AcknowledgeAlertRequest{
+		IdentifierType:  alert.ALERTID,
+		IdentifierValue: alertID,
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (s *Schedules) opsgenieIncreaseAlertPriority(alertID, priority string) error {
 	if err := s.opsgenieInitAlert(); err != nil {
 		return err

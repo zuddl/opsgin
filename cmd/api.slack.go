@@ -146,13 +146,20 @@ func (s *Schedules) slackGetAttachmentAction(action ...string) []slack.Attachmen
 		case "alert_increase_priority":
 			actionList = append(actionList, slack.AttachmentAction{
 				Confirm: &slack.ConfirmationField{
-					Text: ":no_entry_sign: You can increase the priority of the notification, but be careful not to do this if it is not necessary",
+					Text: viper.GetString("_opsgenie.messages.alert_increase_priority.tip"),
 				},
 				Name:  "alert_increase_priority",
 				Style: "danger",
 				Text:  "Increase priority",
 				Type:  "button",
 				Value: "alert_increase_priority",
+			})
+		case "alert_acknowledge":
+			actionList = append(actionList, slack.AttachmentAction{
+				Name:  "alert_acknowledge",
+				Text:  "Ack",
+				Type:  "button",
+				Value: "alert_acknowledge",
 			})
 		case "alert_close":
 			actionList = append(actionList, slack.AttachmentAction{
@@ -172,8 +179,8 @@ func (s *Schedules) slackGetAttachmentAction(action ...string) []slack.Attachmen
 
 func (s *Schedules) slackGetAttachmentFields(priority, duty string) []slack.AttachmentField {
 	return []slack.AttachmentField{
-		{Short: true, Title: "Priority", Value: priority},
-		{Short: true, Title: "On duty", Value: fmt.Sprintf("<@%s>", duty)},
+		{Short: true, Title: viper.GetString("_opsgenie.messages.fields.priority"), Value: priority},
+		{Short: true, Title: viper.GetString("_opsgenie.messages.fields.on_duty"), Value: fmt.Sprintf("<@%s>", duty)},
 	}
 }
 
@@ -205,10 +212,10 @@ func (s *Schedules) slackWatchEvents() {
 			continue
 		}
 
-		slackAttachmentAction := s.slackGetAttachmentAction("alert_increase_priority", "alert_close")
+		slackAttachmentAction := s.slackGetAttachmentAction("alert_increase_priority", "alert_acknowledge", "alert_close")
 		slackAttachmentField := s.slackGetAttachmentFields(viper.GetString("_opsgenie.priority"), s.list[0].duty[0])
 		slackAttachmentColor := "warning"
-		slackResponse := "The engineer on duty has been notified and will be coming soon"
+		slackResponse := viper.GetString("_opsgenie.messages.alert_create.success")
 
 		switch envelope.Type {
 		case socketmode.EventTypeInteractive:
@@ -218,26 +225,37 @@ func (s *Schedules) slackWatchEvents() {
 			switch payload.ActionCallback.AttachmentActions[0].Value {
 			case "alert_close":
 				slackAttachmentColor = "good"
-				slackResponse = ":dizzy: The alert was closed"
+				slackResponse = viper.GetString("_opsgenie.messages.alert_close.success")
 
 				if err := s.opsgenieCloseAlert(data[0]); err != nil {
-					slackResponse = ":bangbang: Failed to close alert"
+					slackResponse = viper.GetString("_opsgenie.messages.alert_close.failure")
 
 					s.log.Errorf("can't close alert - %s", err.Error())
 				} else {
 					slackAttachmentAction = []slack.AttachmentAction{}
 				}
+			case "alert_acknowledge":
+				slackAttachmentColor = "#039be5"
+				slackResponse = viper.GetString("_opsgenie.messages.alert_acknowledged.success")
+
+				if err := s.opsgenieAckAlert(data[0]); err != nil {
+					slackResponse = viper.GetString("_opsgenie.messages.alert_acknowledged.failure")
+
+					s.log.Errorf("can't ack alert - %s", err.Error())
+				} else {
+					slackAttachmentAction = s.slackGetAttachmentAction("alert_close")
+				}
 			case "alert_increase_priority":
 				slackAttachmentField = s.slackGetAttachmentFields("P1", s.list[0].duty[0])
 				slackAttachmentColor = "danger"
-				slackResponse = ":fire: The alert priority has been increased"
+				slackResponse = viper.GetString("_opsgenie.messages.alert_increase_priority.success")
 
 				if err := s.opsgenieIncreaseAlertPriority(data[0], "P1"); err != nil {
-					slackResponse = ":bangbang: Failed to increase alert priority"
+					slackResponse = viper.GetString("_opsgenie.messages.alert_increase_priority.failure")
 
 					s.log.Errorf("can't close alert - %s", err.Error())
 				} else {
-					slackAttachmentAction = s.slackGetAttachmentAction("alert_close")
+					slackAttachmentAction = s.slackGetAttachmentAction("alert_acknowledge", "alert_close")
 				}
 			default:
 				continue
@@ -251,7 +269,7 @@ func (s *Schedules) slackWatchEvents() {
 					CallbackID: payload.CallbackID,
 					Color:      slackAttachmentColor,
 					Fields:     slackAttachmentField,
-					Text:       slackResponse,
+					Text:       strings.Replace(slackResponse, "_user_", fmt.Sprintf("<@%s>", payload.User.ID), -1),
 				}),
 			); err != nil {
 				s.log.Error(err)
@@ -283,7 +301,7 @@ func (s *Schedules) slackWatchEvents() {
 				if err != nil {
 					slackAttachmentAction = []slack.AttachmentAction{}
 					slackAttachmentField = []slack.AttachmentField{}
-					slackResponse = "I couldn't create an alert in OpsGenie :sob:"
+					slackResponse = viper.GetString("_opsgenie.messages.alert_create.failure")
 
 					s.log.Errorf("can't create alert - %s", err.Error())
 				}
@@ -297,7 +315,7 @@ func (s *Schedules) slackWatchEvents() {
 						CallbackID: fmt.Sprintf("%s;%s", alertID, event.TimeStamp),
 						Color:      slackAttachmentColor,
 						Fields:     slackAttachmentField,
-						Text:       slackResponse,
+						Text:       strings.Replace(slackResponse, "_user_", fmt.Sprintf("<@%s>", event.User), -1),
 					}),
 				); err != nil {
 					s.log.Error(err)
