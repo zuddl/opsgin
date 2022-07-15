@@ -222,6 +222,8 @@ func (s *Schedules) slackWatchEvents() {
 			payload, _ := envelope.Data.(slack.InteractionCallback)
 			data := strings.Split(payload.CallbackID, ";")
 
+			slackAttachmentField = s.slackGetAttachmentFields(data[1], s.list[0].duty[0])
+
 			switch payload.ActionCallback.AttachmentActions[0].Value {
 			case "alert_close":
 				slackAttachmentColor = "good"
@@ -246,11 +248,13 @@ func (s *Schedules) slackWatchEvents() {
 					slackAttachmentAction = s.slackGetAttachmentAction("alert_close")
 				}
 			case "alert_increase_priority":
-				slackAttachmentField = s.slackGetAttachmentFields("P1", s.list[0].duty[0])
+				data[1] = "P1"
+
+				slackAttachmentField = s.slackGetAttachmentFields(data[1], s.list[0].duty[0])
 				slackAttachmentColor = "danger"
 				slackResponse = viper.GetString("_opsgenie.messages.alert_increase_priority.success")
 
-				if err := s.opsgenieIncreaseAlertPriority(data[0], "P1"); err != nil {
+				if err := s.opsgenieIncreaseAlertPriority(data[0], data[1]); err != nil {
 					slackResponse = viper.GetString("_opsgenie.messages.alert_increase_priority.failure")
 
 					s.log.Errorf("can't close alert - %s", err.Error())
@@ -266,7 +270,7 @@ func (s *Schedules) slackWatchEvents() {
 				slack.MsgOptionReplaceOriginal(payload.ResponseURL),
 				slack.MsgOptionAttachments(slack.Attachment{
 					Actions:    slackAttachmentAction,
-					CallbackID: payload.CallbackID,
+					CallbackID: strings.Join(data, ";"),
 					Color:      slackAttachmentColor,
 					Fields:     slackAttachmentField,
 					Text:       strings.Replace(slackResponse, "_user_", fmt.Sprintf("<@%s>", payload.User.ID), -1),
@@ -312,7 +316,7 @@ func (s *Schedules) slackWatchEvents() {
 					slack.MsgOptionTS(event.TimeStamp),
 					slack.MsgOptionAttachments(slack.Attachment{
 						Actions:    slackAttachmentAction,
-						CallbackID: fmt.Sprintf("%s;%s", alertID, event.TimeStamp),
+						CallbackID: fmt.Sprintf("%s;%s", alertID, viper.GetString("_opsgenie.priority")),
 						Color:      slackAttachmentColor,
 						Fields:     slackAttachmentField,
 						Text:       strings.Replace(slackResponse, "_user_", fmt.Sprintf("<@%s>", event.User), -1),
