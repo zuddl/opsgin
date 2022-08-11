@@ -131,7 +131,7 @@ func (s *Schedules) opsgenieAddAlert(message, thread_ts, thread_link string) (st
 	ctx := context.Background()
 
 	res, err := s.ac.Create(ctx, &alert.CreateAlertRequest{
-		Description: fmt.Sprintf("%s\nslack:%s", message, thread_link),
+		Description: fmt.Sprintf("slack:%s\n%s", thread_link, message),
 		Message:     "you were called in the slack",
 		Priority:    alert.Priority(viper.GetString("_opsgenie.priority")),
 		Responders: []alert.Responder{{
