@@ -31,6 +31,7 @@ POSSIBILITY OF SUCH DAMAGE.
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -284,6 +285,14 @@ func (s *Schedules) slackWatchEvents() {
 
 			switch event := payload.InnerEvent.Data.(type) {
 			case *slackevents.AppMentionEvent:
+				var msg slackevents.MessageEvent
+
+				json.Unmarshal([]byte(*payload.Data.(*slackevents.EventsAPICallbackEvent).InnerEvent), &msg)
+
+				if msg.Edited != nil {
+					continue
+				}
+
 				s.log.Debug("getting permalink")
 				link, err := s.slack.GetPermalink(&slack.PermalinkParameters{
 					Channel: event.Channel,
