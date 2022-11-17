@@ -145,9 +145,6 @@ func init() {
 func initConfig() {
 	viper.AutomaticEnv()
 	viper.SetConfigFile(fmt.Sprintf("%s/%s", configPath, configFile))
-	viper.SetDefault("_opsgenie.priority", "P5")
-	viper.SetDefault("_opsgenie.messages.fields.on_duty", "On duty")
-	viper.SetDefault("_opsgenie.messages.fields.priority", "Priority")
 	viper.SetDefault("_opsgenie.messages.alert_acknowledged.failure", "Failed to update alert status :sob:")
 	viper.SetDefault("_opsgenie.messages.alert_acknowledged.success", "The engineer on duty has read the notification (_user_)")
 	viper.SetDefault("_opsgenie.messages.alert_close.failure", ":bangbang: Failed to close alert")
@@ -157,6 +154,12 @@ func initConfig() {
 	viper.SetDefault("_opsgenie.messages.alert_increase_priority.failure", ":bangbang: Failed to increase alert priority")
 	viper.SetDefault("_opsgenie.messages.alert_increase_priority.success", ":fire: The alert priority has been increased")
 	viper.SetDefault("_opsgenie.messages.alert_increase_priority.tip", ":no_entry_sign: You can increase the priority of the notification, but be careful not to do this if it is not necessary")
+	viper.SetDefault("_opsgenie.messages.command.help", "Available arguments for slash commands: *who*, *w*")
+	viper.SetDefault("_opsgenie.messages.command.on_duty", "The engineer on duty - _user_")
+	viper.SetDefault("_opsgenie.messages.command.unknown", ":bangbang: Unknown command")
+	viper.SetDefault("_opsgenie.messages.fields.on_duty", "On duty")
+	viper.SetDefault("_opsgenie.messages.fields.priority", "Priority")
+	viper.SetDefault("_opsgenie.priority", "P5")
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.SetEnvPrefix(pkg)
 

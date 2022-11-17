@@ -188,7 +188,10 @@ func (s *Schedules) slackGetAttachmentFields(priority, duty string) []slack.Atta
 func (s *Schedules) slackWatchEvents() {
 	for envelope := range s.sm.Events {
 		switch envelope.Type {
-		case socketmode.EventTypeInteractive, socketmode.EventTypeEventsAPI:
+		case
+			socketmode.EventTypeEventsAPI,
+			socketmode.EventTypeInteractive,
+			socketmode.EventTypeSlashCommand:
 			s.log.Debugf("event type: %v", envelope.Type)
 		default:
 			s.log.Debugf("skipped: %v", envelope.Type)
@@ -333,6 +336,29 @@ func (s *Schedules) slackWatchEvents() {
 				); err != nil {
 					s.log.Error(err)
 				}
+			}
+
+		case socketmode.EventTypeSlashCommand:
+			payload, _ := envelope.Data.(slack.SlashCommand)
+
+			switch payload.Text {
+			case "w", "who":
+				slackResponse = viper.GetString("_opsgenie.messages.command.on_duty")
+			case "":
+				slackResponse = viper.GetString("_opsgenie.messages.command.help")
+			default:
+				slackResponse = viper.GetString("_opsgenie.messages.command.unknown")
+			}
+
+			if _, err := s.slack.PostEphemeral(
+				payload.ChannelID,
+				payload.UserID,
+				slack.MsgOptionText(
+					strings.Replace(slackResponse, "_user_", fmt.Sprintf("<@%s>", s.list[0].duty[0]), -1),
+					false,
+				),
+			); err != nil {
+				s.log.Error(err)
 			}
 		}
 	}
