@@ -1,8 +1,10 @@
 # What is it
 
-This utility syncs duty users from specific `Opsgenie` schedules with user groups in `Slack`.
+Utility for integrating on-duty `Opsgenie` and `Slack`
 
-In addition to the on-call from `Opsgenie`, you can specify additional ones that will also be added to the user group.
+Works in two modes:
+- sync: syncs duty users from specific `Opsgenie` schedules with user groups in `Slack`.
+- daemon: calling on-duty in `Slack` channels and sending them notifications in `Opsgenie` via alerts
 
 ## What is required for work
 
@@ -19,13 +21,31 @@ In addition to the on-call from `Opsgenie`, you can specify additional ones that
 ## Configuration example
 
 ```yaml
+# sync mode
 slack_user_group_name1:
   - opsgenie schedule name 1
-
+  - additional.user@num1
+  - additional.user@num2
 slack_user_group_name2:
   - opsgenie schedule name 2
   - additional.user@num1
   - additional.user@num2
+
+# daemon mode
+slack_app_name1:
+  opsgenie:
+    schedule: opsgenie schedule name 1
+  slack:
+    api_key: xoxb-***
+    app_key: xapp-***
+    user_group: user group name 1
+slack_app_name2:
+  opsgenie:
+    schedule: opsgenie schedule name 2
+  slack:
+    api_key: xoxb-***
+    app_key: xapp-***
+    user_group: user group name 2
 ```
 
 ## Usage with docker
@@ -52,21 +72,24 @@ docker run \
 ```shell
 go install -v github.com/opsgin/opsgin@0.1
 opsgin
-Synchronization of the on-duty Opsgenie with Slack user groups
+Utility for integrating on-duty Opsgenie and Slack
 
 Usage:
   opsgin [command]
 
 Available Commands:
+  daemon      Calling on-duty in Slack channels and sending them notifications in Opsgenie via alerts
   help        Help about any command
-  sync        Sync users
+  sync        Synchronization of the on-duty Opsgenie with Slack user groups
 
 Flags:
       --config-file string   Set the configuration file name (default "config.yaml")
-      --config-path string   Set the configuration file path (default "/etc/opsgin")
+      --config-path string   Set the configuration file path (default "/Users/dkhalturin/repos/home/slack-utils/opsgin/build/package/etc/opsgin")
   -h, --help                 help for opsgin
       --log-format string    Set the log format: text, json (default "text")
       --log-level string     Set the log level: debug, info, warn, error, fatal (default "info")
+      --log-pretty           Json logs will be indented
+  -v, --version              version for opsgin
 
 Use "opsgin [command] --help" for more information about a command.
 ```

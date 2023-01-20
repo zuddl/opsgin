@@ -1,37 +1,8 @@
-_opsgenie:
-  messages:
-    alert_acknowledged:
-      failure: "Failed to update alert status :sob:"
-      success: "The engineer on duty has read the notification (_user_)"
-    alert_close:
-      failure: ":bangbang: Failed to close alert"
-      success: ":dizzy: The alert was closed"
-    alert_create:
-      failure: "I couldn't create an alert in OpsGenie :sob:"
-      success: "The engineer on duty has been notified and will be coming soon"
-    alert_increase_priority:
-      failure: ":bangbang: Failed to increase alert priority"
-      success: ":fire: The alert priority has been increased"
-      tip: ":no_entry_sign: You can increase the priority of the notification, but be careful not to do this if it is not necessary"
-    command:
-      help: "Available arguments for slash commands: *who*, *w*"
-      on_duty: "The engineer on duty - _user_"
-      unknown: ":bangbang: Unknown command"
-    fields:
-      on_duty: "On duty"
-      priority: "Priority"
-      priority_p1_after: "P1 after _time_"
-  priority: "P5"
-  priority_increase:
-    timer: 0
-    confirm: true
-
 # sync mode
 # slack_user_group_name1:
 #   - opsgenie schedule name 1
 #   - additional.user@num1
 #   - additional.user@num2
-
 # slack_user_group_name2:
 #   - opsgenie schedule name 2
 #   - additional.user@num1
@@ -39,11 +10,16 @@ _opsgenie:
 
 # daemon mode
 # slack_app_name1:
-#   - opsgenie schedule name 1
-#   - xapp-***
-#   - xoxb-***
-
+#   opsgenie:
+#     schedule: opsgenie schedule name 1
+#   slack:
+#     api_key: xoxb-***
+#     app_key: xapp-***
+#     user_group: user group name 1
 # slack_app_name2:
-#   - opsgenie schedule name 2
-#   - xapp-***
-#   - xoxb-***
+#   opsgenie:
+#     schedule: opsgenie schedule name 2
+#   slack:
+#     api_key: xoxb-***
+#     app_key: xapp-***
+#     user_group: user group name 2

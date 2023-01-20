@@ -33,6 +33,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/opsgenie/opsgenie-go-sdk-v2/alert"
 	"github.com/opsgenie/opsgenie-go-sdk-v2/client"
@@ -111,6 +112,7 @@ func (s *Schedules) opsgenieGetSchedules(sn ...string) error {
 			ScheduleIdentifier:     item.name,
 			ScheduleIdentifierType: schedule.Name,
 		})
+
 		if err != nil {
 			continue
 		}
@@ -118,6 +120,29 @@ func (s *Schedules) opsgenieGetSchedules(sn ...string) error {
 		for _, participants := range oc.OnCallParticipants {
 			s.list[idx].duty = append(s.list[idx].duty, participants.Name)
 		}
+	}
+
+	return nil
+}
+
+func (s *Schedules) opsgenieOverrideSchedules(sc, user string, duration time.Duration) error {
+	if err := s.opsgenieInitSchedule(); err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+
+	if _, err := s.sc.CreateScheduleOverride(ctx, &schedule.CreateScheduleOverrideRequest{
+		EndDate:                time.Now().Add(duration),
+		StartDate:              time.Now(),
+		ScheduleIdentifier:     sc,
+		ScheduleIdentifierType: schedule.Name,
+		User: schedule.Responder{
+			Type:     schedule.UserResponderType,
+			Username: user,
+		},
+	}); err != nil {
+		return err
 	}
 
 	return nil

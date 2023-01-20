@@ -79,10 +79,15 @@ type Event struct {
 }
 
 type Schedule struct {
-	duty  []string
-	group string
-	name  string
-	token []string
+	// opsgenie
+	duty []string
+	name string
+
+	// slack
+	api_key string
+	app_key string
+	filter  string
+	group   string
 }
 
 type Schedules struct {
@@ -110,18 +115,22 @@ func (s *Schedules) configGetSchedules() error {
 			continue
 		}
 
-		data := viper.GetStringSlice(item)
-
-		schedule := Schedule{
-			group: item,
-			name:  data[0],
-		}
+		schedule := Schedule{group: item}
 
 		switch s.mode {
 		case "daemon":
-			schedule.token = data[1:]
+			data := viper.GetStringMapString("devopshero.opsgenie")
+			schedule.name = data["schedule"]
+
+			data = viper.GetStringMapString("devopshero.slack")
+			schedule.api_key = data["api_key"]
+			schedule.app_key = data["app_key"]
+			schedule.filter = data["user_group"]
 		case "sync":
+			data := viper.GetStringSlice(item)
+
 			schedule.duty = data[1:]
+			schedule.name = data[0]
 		default:
 			return fmt.Errorf("unknown app mode")
 		}
@@ -170,15 +179,17 @@ func initConfig() {
 	viper.SetDefault("_opsgenie.messages.alert_increase_priority.failure", ":bangbang: Failed to increase alert priority")
 	viper.SetDefault("_opsgenie.messages.alert_increase_priority.success", ":fire: The alert priority has been increased")
 	viper.SetDefault("_opsgenie.messages.alert_increase_priority.tip", ":no_entry_sign: You can increase the priority of the notification, but be careful not to do this if it is not necessary")
-	viper.SetDefault("_opsgenie.messages.command.help", "Available arguments for slash commands: *who*, *w*")
+	viper.SetDefault("_opsgenie.messages.command.duty_transferred", "The duty was transferred to you for _time_")
+	viper.SetDefault("_opsgenie.messages.command.duty_was_taken", "The duty was taken by _user_ for _time_")
+	viper.SetDefault("_opsgenie.messages.command.help", "Available arguments for slash commands: *take*, *who*, *w*")
 	viper.SetDefault("_opsgenie.messages.command.on_duty", "The engineer on duty - _user_")
 	viper.SetDefault("_opsgenie.messages.command.unknown", ":bangbang: Unknown command")
 	viper.SetDefault("_opsgenie.messages.fields.on_duty", "On duty")
 	viper.SetDefault("_opsgenie.messages.fields.priority", "Priority")
 	viper.SetDefault("_opsgenie.messages.fields.priority_p1_after", "P1 after _time_")
 	viper.SetDefault("_opsgenie.priority", "P5")
-	viper.SetDefault("_opsgenie.priority_increase.timer", 0)
 	viper.SetDefault("_opsgenie.priority_increase.confirm", true)
+	viper.SetDefault("_opsgenie.priority_increase.timer", 0)
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.SetEnvPrefix(pkg)
 

@@ -35,7 +35,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -45,6 +44,7 @@ import (
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
 	"github.com/spf13/viper"
+	"golang.org/x/exp/slices"
 )
 
 var priority_auto_increase_alert map[string]bool
@@ -56,27 +56,18 @@ func (s *Schedules) slackInit() error {
 
 	var (
 		slack_app_key string // xapp
-		slack_key     string // xoxp or xoxb
+		slack_api_key string // xoxp or xoxb
 		slack_type    string
 	)
 
 	switch s.mode {
 	case "daemon":
 		priority_auto_increase_alert = make(map[string]bool)
-
-		for _, item := range s.list[0].token {
-			if ok, _ := regexp.MatchString(`xox[p,b]-`, item); ok {
-				slack_key = item
-			}
-
-			if strings.Contains(item, "xapp-") {
-				slack_app_key = item
-			}
-		}
-
+		slack_api_key = s.list[0].api_key
+		slack_app_key = s.list[0].app_key
 		slack_type = "appname"
 	case "sync":
-		slack_key = viper.GetString("slack.api.key")
+		slack_api_key = viper.GetString("slack.api.key")
 		slack_type = "usergroup"
 	default:
 		return fmt.Errorf("unknown app mode")
@@ -90,7 +81,7 @@ func (s *Schedules) slackInit() error {
 	s.log.Info("init slack client")
 
 	s.slack = slack.New(
-		slack_key,
+		slack_api_key,
 		slack.OptionAppLevelToken(slack_app_key),
 		// slack.OptionDebug(true),
 	)
@@ -476,9 +467,20 @@ func (s *Schedules) Interactive(e Event) {
 }
 
 func (s *Schedules) SlashCommand(e Event) {
+	data := strings.Split(e.Data, " ")
 	response := ""
 
-	switch e.Data {
+	if len(data) < 2 {
+		data = append(data, "")
+	}
+
+	switch data[0] {
+	case "take":
+		response = viper.GetString("_opsgenie.messages.command.duty_transferred")
+
+		if err := s.SlashCommandTake(e); err != nil {
+			response = fmt.Sprintf(":bangbang: `%s`", err)
+		}
 	case "w", "who":
 		response = viper.GetString("_opsgenie.messages.command.on_duty")
 	case "":
@@ -487,21 +489,72 @@ func (s *Schedules) SlashCommand(e Event) {
 		response = viper.GetString("_opsgenie.messages.command.unknown")
 	}
 
+	for k, v := range map[string]string{
+		"_user_": fmt.Sprintf("<@%s>", e.OnDuty),
+		"_time_": data[1],
+	} {
+		response = strings.Replace(response, k, v, -1)
+	}
+
 	if _, err := s.slack.PostEphemeral(
 		e.ChannelID,
 		e.UserID,
-		slack.MsgOptionText(
-			strings.Replace(
-				response,
-				"_user_",
-				fmt.Sprintf("<@%s>", e.OnDuty),
-				-1,
-			),
-			false,
-		),
+		slack.MsgOptionText(response, false),
 	); err != nil {
 		s.log.Error(err)
 	}
+}
+
+func (s *Schedules) SlashCommandTake(e Event) error {
+	data := strings.Split(e.Data, " ")
+	response := viper.GetString("_opsgenie.messages.command.duty_was_taken")
+
+	duration, err := time.ParseDuration(data[1])
+	if err != nil {
+		return err
+	}
+
+	list, err := s.slack.GetUserGroupMembers(s.list[0].filter)
+	if err != nil {
+		return err
+	}
+
+	if !slices.Contains(list, e.UserID) {
+		return fmt.Errorf("permission denied")
+	}
+
+	u, err := s.slack.GetUserInfo(e.UserID)
+	if err != nil {
+		return err
+	}
+
+	if u.Profile.Email == "" {
+		return fmt.Errorf("your email is empty")
+	}
+
+	if err := s.opsgenieOverrideSchedules(
+		s.list[0].name,
+		u.Profile.Email,
+		duration,
+	); err != nil {
+		return err
+	}
+
+	for k, v := range map[string]string{
+		"_user_": fmt.Sprintf("<@%s>", e.UserID),
+		"_time_": data[1],
+	} {
+		response = strings.Replace(response, k, v, -1)
+	}
+
+	if _, _, err := s.slack.PostMessage(
+		e.ChannelID,
+		slack.MsgOptionText(response, false),
+	); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (s *Schedules) slackUpdateUserGroup() error {
