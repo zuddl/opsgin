@@ -509,6 +509,14 @@ func (s *Schedules) SlashCommandTake(e Event) error {
 	data := strings.Split(e.Data, " ")
 	response := viper.GetString("_opsgenie.messages.command.duty_was_taken")
 
+	if len(data) < 2 {
+		data = append(data, "")
+	}
+
+	if data[1] == "" {
+		return fmt.Errorf("to use the command, enter the time in the format 1.5h or 2h45m")
+	}
+
 	duration, err := time.ParseDuration(data[1])
 	if err != nil {
 		return err
