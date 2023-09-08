@@ -541,7 +541,6 @@ func (s *Schedules) SlashCommandTake(e Event) error {
 	}
 
 	if err := s.opsgenieOverrideSchedules(
-		s.list[0].name,
 		u.Profile.Email,
 		duration,
 	); err != nil {

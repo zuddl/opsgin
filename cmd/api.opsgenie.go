@@ -47,13 +47,16 @@ func (s *Schedules) opsgenieInitSchedule() error {
 		return nil
 	}
 
-	opsgin_key := viper.GetString("api.key")
-	if opsgin_key == "" {
-		return fmt.Errorf("opsgenie API key is empty")
+	api_key := s.list[0].og_api_key
+
+	if api_key == "" {
+		if api_key = viper.GetString("api.key"); api_key == "" {
+			return fmt.Errorf("opsgenie API key is empty")
+		}
 	}
 
 	sc, err := schedule.NewClient(&client.Config{
-		ApiKey:     opsgin_key,
+		ApiKey:     api_key,
 		Logger:     log.StandardLogger(),
 		RetryCount: 5,
 	})
@@ -71,13 +74,16 @@ func (s *Schedules) opsgenieInitAlert() error {
 		return nil
 	}
 
-	opsgin_key := viper.GetString("api.key")
-	if opsgin_key == "" {
-		return fmt.Errorf("opsgenie API key is empty")
+	api_key := s.list[0].og_api_key
+
+	if api_key == "" {
+		if api_key = viper.GetString("api.key"); api_key == "" {
+			return fmt.Errorf("opsgenie API key is empty")
+		}
 	}
 
 	ac, err := alert.NewClient(&client.Config{
-		ApiKey:     opsgin_key,
+		ApiKey:     api_key,
 		Logger:     log.StandardLogger(),
 		RetryCount: 5,
 	})
@@ -125,7 +131,7 @@ func (s *Schedules) opsgenieGetSchedules(sn ...string) error {
 	return nil
 }
 
-func (s *Schedules) opsgenieOverrideSchedules(sc, user string, duration time.Duration) error {
+func (s *Schedules) opsgenieOverrideSchedules(user string, duration time.Duration) error {
 	if err := s.opsgenieInitSchedule(); err != nil {
 		return err
 	}
@@ -135,7 +141,7 @@ func (s *Schedules) opsgenieOverrideSchedules(sc, user string, duration time.Dur
 	if _, err := s.sc.CreateScheduleOverride(ctx, &schedule.CreateScheduleOverrideRequest{
 		EndDate:                time.Now().Add(duration),
 		StartDate:              time.Now(),
-		ScheduleIdentifier:     sc,
+		ScheduleIdentifier:     s.list[0].name,
 		ScheduleIdentifierType: schedule.Name,
 		User: schedule.Responder{
 			Type:     schedule.UserResponderType,

@@ -80,8 +80,9 @@ type Event struct {
 
 type Schedule struct {
 	// opsgenie
-	duty []string
-	name string
+	duty       []string
+	name       string
+	og_api_key string
 
 	// slack
 	api_key string
@@ -121,6 +122,7 @@ func (s *Schedules) configGetSchedules() error {
 		case "daemon":
 			data := viper.GetStringMapString(fmt.Sprintf("%s.opsgenie", item))
 			schedule.name = data["schedule"]
+			schedule.og_api_key = data["api_key"]
 
 			data = viper.GetStringMapString(fmt.Sprintf("%s.slack", item))
 			schedule.api_key = data["api_key"]
