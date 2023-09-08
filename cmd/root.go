@@ -119,10 +119,10 @@ func (s *Schedules) configGetSchedules() error {
 
 		switch s.mode {
 		case "daemon":
-			data := viper.GetStringMapString("devopshero.opsgenie")
+			data := viper.GetStringMapString(fmt.Sprintf("%s.opsgenie", item))
 			schedule.name = data["schedule"]
 
-			data = viper.GetStringMapString("devopshero.slack")
+			data = viper.GetStringMapString(fmt.Sprintf("%s.slack", item))
 			schedule.api_key = data["api_key"]
 			schedule.app_key = data["app_key"]
 			schedule.filter = data["user_group"]
