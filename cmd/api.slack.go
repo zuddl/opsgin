@@ -650,11 +650,11 @@ func (s *Schedules) slackFindUsers() error {
 	}
 
 	for _, item := range s.list {
-		if len(item.duty) < 1 {
+		if len(item.finalDuty) < 1 {
 			continue
 		}
 
-		for idx, duty := range item.duty {
+		for idx, duty := range item.finalDuty {
 			user, err := s.slack.GetUserByEmail(duty)
 			if err != nil {
 				s.log.Warnf("can't find user %#v", duty)
@@ -662,7 +662,7 @@ func (s *Schedules) slackFindUsers() error {
 				user = &slack.User{} // the user will be removed from duty
 			}
 
-			item.duty[idx] = user.ID
+			item.finalDuty[idx] = user.ID
 		}
 	}
 

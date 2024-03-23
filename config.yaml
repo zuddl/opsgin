@@ -1,0 +1,9 @@
+infra-oncall:
+  - infra_schedule
+  - vedha@zuddl.com
+eng-oncall:
+  - "event-hosting_schedule"
+  - dig_schedule
+  - "event-marketing_schedule"
+  - vedha@zuddl.com
+  - satyadeep@zuddl.com

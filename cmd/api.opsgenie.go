@@ -33,6 +33,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/opsgenie/opsgenie-go-sdk-v2/alert"
@@ -108,23 +109,29 @@ func (s *Schedules) opsgenieGetSchedules(sn ...string) error {
 			continue
 		}
 
+
 		log.Infof("Schedule loading: %s", item.name)
 
-		s.list[idx].duty = []string{}
+		s.list[idx].finalDuty = []string{}
+		for _, team:= range item.duty {
+			if (strings.Contains(team,"@")) {
+				s.list[idx].finalDuty = append(s.list[idx].finalDuty, team)
+				continue;
+			}
+			flat := false
+			oc, err := s.sc.GetOnCalls(ctx, &schedule.GetOnCallsRequest{
+				Flat:                   &flat,
+				ScheduleIdentifier:     team,
+				ScheduleIdentifierType: schedule.Name,
+			})
 
-		flat := false
-		oc, err := s.sc.GetOnCalls(ctx, &schedule.GetOnCallsRequest{
-			Flat:                   &flat,
-			ScheduleIdentifier:     item.name,
-			ScheduleIdentifierType: schedule.Name,
-		})
+			if err != nil {
+				continue
+			}
 
-		if err != nil {
-			continue
-		}
-
-		for _, participants := range oc.OnCallParticipants {
-			s.list[idx].duty = append(s.list[idx].duty, participants.Name)
+			for _, participants := range oc.OnCallParticipants {
+				s.list[idx].finalDuty = append(s.list[idx].finalDuty, participants.Name)
+			}
 		}
 	}
 

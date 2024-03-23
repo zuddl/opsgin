@@ -81,6 +81,7 @@ type Event struct {
 type Schedule struct {
 	// opsgenie
 	duty       []string
+	finalDuty  []string
 	name       string
 	og_api_key string
 
@@ -131,8 +132,7 @@ func (s *Schedules) configGetSchedules() error {
 		case "sync":
 			data := viper.GetStringSlice(item)
 
-			schedule.duty = data[1:]
-			schedule.name = data[0]
+			schedule.duty = data[0:]
 		default:
 			return fmt.Errorf("unknown app mode")
 		}
