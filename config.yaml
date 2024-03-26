@@ -1,5 +1,6 @@
 infra-oncall:
   - infra_schedule
+  - pratik.vasa@zuddl.com
   - vedha@zuddl.com
 eng-oncall:
   - "event-hosting_schedule"

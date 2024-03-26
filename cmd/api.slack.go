@@ -584,7 +584,7 @@ func (s *Schedules) slackUpdateUserGroup() error {
 
 		duty := []string{}
 
-		for _, uid := range item.duty {
+		for _, uid := range item.finalDuty {
 			if uid == "" {
 				continue
 			}
